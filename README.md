@@ -6,6 +6,8 @@ Phiên bản **0.3.0** bổ sung phương pháp **OCR cục bộ — chỉ tríc
 
 Phiên bản **0.4.0** thêm **Windows OCR — nhận chữ bằng Windows**. Cần cài chương trình cầu nối một lần; sau đó khoanh vùng và nhận chữ tự động, không mở Snipping Tool hoặc sao chép thủ công. Xem [hướng dẫn cài Windows OCR](docs/WINDOWS_OCR.md). Bộ cài cầu nối là ZIP riêng trong `.output`, không nằm trong ZIP extension.
 
+Phiên bản **0.4.1** sửa chế độ Gemini **Dịch nhanh**: prompt riêng chỉ yêu cầu bản dịch, dùng mức suy luận thấp nhất đã biết được model hỗ trợ (`low` hoặc `minimal`). Không bật suy luận cho Gemini 2.5 Flash-Lite vốn mặc định tắt; model lạ giữ mặc định để tránh gửi tham số không hỗ trợ. Giữ cấu hình suy luận hiện có cho **Dịch và hiểu**. Bộ đọc kết quả chấp nhận JSON hoàn chỉnh được bọc trong Markdown và mặc định cảnh báo rỗng nếu model bỏ trường này; vẫn từ chối JSON hỏng/cắt dở. Không tự gọi lại, không đổi model và không đặt giới hạn token đầu ra thấp dễ làm cụt JSON. Tốc độ thực tế còn phụ thuộc model và dịch vụ; kiểm thử tự động dùng phản hồi giả lập, không đo thời gian bằng key thật. Cấu hình mức suy luận theo [tài liệu Interactions API của Gemini](https://ai.google.dev/gemini-api/docs/thinking).
+
 ## Chỉ lấy chữ bằng OCR cục bộ
 
 1. Reload Comic Lens tại `brave://extensions`, rồi tải lại trang truyện nếu vừa cập nhật.
@@ -92,7 +94,7 @@ npm run test:e2e
 npm run zip
 ```
 
-Build nằm ở `.output/chrome-mv3`, ZIP phiên bản 0.4.0 nằm trong `.output`. Build sẽ ghi đè thư mục này; sửa mã nguồn rồi build lại, reload extension và trang truyện. `npm run dev` dùng WXT. Không cần backend hoặc Python.
+Build nằm ở `.output/chrome-mv3`, ZIP phiên bản 0.4.1 nằm trong `.output`. Build sẽ ghi đè thư mục này; sửa mã nguồn rồi build lại, reload extension và trang truyện. `npm run dev` dùng WXT. Không cần backend hoặc Python.
 
 `npm ci` và các lệnh dev/build/zip tự chạy `scripts/ocr-assets.mjs` để chép worker, core LSTM và dữ liệu tiếng Anh từ dependency vào `public/ocr` (thư mục sinh tự động, không đưa vào Git). Không dùng worker/code CDN. CSP cho phép WebAssembly cục bộ, không thêm quyền website hoặc quyền mạng cho OCR. Xem giấy phép trong thư mục `ocr` của bản build.
 

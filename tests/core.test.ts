@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { pixelRect } from '../src/image';
 import { defaultSettings } from '../src/methods/catalog';
-import { extractOutput, geminiHttpError, geminiMethod, parseTranslation } from '../src/methods/gemini';
+import { extractOutput, geminiHttpError, geminiMethod, parseTranslation, parseTranslationText, quickGenerationConfig } from '../src/methods/gemini';
 import { createRegistry } from '../src/methods/registry';
 import { AppError, failure } from '../src/errors';
 import type { TranslationMethod, TranslationResult } from '../src/types';
@@ -33,6 +33,34 @@ describe('Gemini response validation', () => {
     expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/interactions');
     expect(body).toMatchObject({ store: false, model: 'gemini-3.8-flash', response_format: { mime_type: 'application/json' } });
     expect(body.agent).toBeUndefined(); expect(body.input[1]).toMatchObject({ data: 'png-bytes', type: 'image' });
+    expect(body.generation_config).toEqual({ thinking_level: 'low' });
+    expect(body.response_format.schema.properties.segments.items.properties.learning).toBeUndefined();
+    expect(body.input[0].text).toContain('translate directly');
+  });
+  it.each([
+    ['gemini-3.8-flash', 'low'], ['gemini-3.6-flash', 'minimal'],
+    ['gemini-3.5-flash-lite', 'minimal'], ['gemini-3.1-flash-lite', 'minimal'],
+    ['gemini-3.1-pro-preview', 'low'], ['gemini-2.5-flash', 'low'], ['gemini-2.5-pro', 'low'],
+    ['models/gemini-3.8-flash', 'low'],
+  ])('uses a supported quick thinking level for %s', (model, thinking_level) => {
+    expect(quickGenerationConfig(model)).toEqual({ thinking_level });
+  });
+  it.each(['gemini-2.5-flash-lite', 'custom-saved-model'])('does not enable extra thinking or invent model settings for %s', model => {
+    expect(quickGenerationConfig(model)).toBeUndefined();
+  });
+  it('keeps learning requests on their existing generation settings', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(interaction(JSON.stringify(result))))); vi.stubGlobal('fetch', fetch);
+    const translated = await geminiMethod.translate({ ...input, mode: 'learn' }, context());
+    const body = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(body.generation_config).toBeUndefined();
+    expect(body.response_format.schema.properties.segments.items.properties.learning).toBeDefined();
+    expect(body.input[0].text).toContain('Also teach'); expect(translated.segments[0].translation).toBe('Đợi đã!');
+  });
+  it('accepts a complete JSON fence and absent optional warnings without losing dialogue', () => {
+    expect(parseTranslationText('\uFEFF```json\n' + JSON.stringify({ segments: result.segments }) + '\n```')).toEqual(result);
+    expect(() => parseTranslationText('```json\n{"segments":[')).toThrow(AppError);
+    expect(() => parseTranslationText('Here is a translation: ' + JSON.stringify(result))).toThrow(AppError);
+    expect(() => parseTranslation({ ...result, warnings: 'bad' })).toThrow(AppError);
   });
   it.each([[401, 'AUTH'], [403, 'AUTH'], [404, 'MODEL'], [429, 'QUOTA'], [503, 'NETWORK']])('maps HTTP %s without retrying or exposing response secrets', async (status, code) => {
     const fetch = vi.fn().mockResolvedValue(new Response('secret provider diagnostics', { status: Number(status) })); vi.stubGlobal('fetch', fetch);

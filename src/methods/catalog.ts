@@ -14,7 +14,7 @@ export const languageOptions = [
 export const methodCatalog: MethodDescriptor[] = [{
   id: 'gemini-image',
   label: 'Gemini — đọc ảnh trực tiếp',
-  promptVersion: 'comic-v2-learning',
+  promptVersion: 'comic-v3-quick-thinking',
   fields: [
     { key: 'apiKey', label: 'Gemini API key', secret: true },
     { key: 'model', label: 'Model dịch ảnh', defaultValue: 'gemini-3.8-flash', suggestions: [

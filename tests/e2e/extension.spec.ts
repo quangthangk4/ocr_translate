@@ -16,7 +16,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="650" height="2200"><
 // Offscreen targets aren't Playwright Pages. Inject a fake fetch into an isolated test copy.
 function installMock() {
   const original = globalThis.fetch;
-  let config = { status: 200, delay: 0, malformed: false, brokenLearning: false, unsafe: false };
+  let config = { status: 200, delay: 0, malformed: false, brokenLearning: false, unsafe: false, quickEnvelope: false };
   let calls: object[] = [];
   chrome.runtime.onMessage.addListener((message, _sender, respond) => {
     if (message.target !== 'mock-api') return;
@@ -40,14 +40,15 @@ function installMock() {
     };
     const learn = !!body.response_format?.schema?.properties?.segments?.items?.properties?.learning;
     const result = { segments: [{ source: "I'd expect it to be far stronger than the Dragon Lord, at the very least." + (snapshot.unsafe ? ' <img src=x onerror="alert(1)">' : ''), translation: 'Ít nhất thì tôi cũng nghĩ nó phải mạnh hơn Long Vương rất nhiều.' + (snapshot.unsafe ? ' <script>alert(1)</script>' : ''), ...(learn ? { learning } : {}) }], warnings: [] };
-    return new Response(snapshot.status !== 200 ? '{"error":{"message":"Mock provider error"}}' : JSON.stringify({ status: 'completed', steps: [{ type: 'model_output', content: [{ type: 'text', text: typeof body.input === 'string' ? 'OK' : snapshot.malformed ? '{broken' : JSON.stringify(result) }] }] }), { status: snapshot.status, headers: { 'Content-Type': 'application/json' } });
+    const payload = snapshot.quickEnvelope && !learn ? '```json\n' + JSON.stringify({ segments: result.segments }) + '\n```' : JSON.stringify(result);
+    return new Response(snapshot.status !== 200 ? '{"error":{"message":"Mock provider error"}}' : JSON.stringify({ status: 'completed', steps: [{ type: 'model_output', content: [{ type: 'text', text: typeof body.input === 'string' ? 'OK' : snapshot.malformed ? '{broken' : payload }] }] }), { status: snapshot.status, headers: { 'Content-Type': 'application/json' } });
   };
 }
 async function background<T = unknown>(message: object): Promise<T> {
   const reply = await options.evaluate(async message => await chrome.runtime.sendMessage({ target: 'background', ...message }), message);
   expect(reply.ok, JSON.stringify(reply.error)).toBe(true); return reply.data;
 }
-async function configureMock(config: { status?: number; delay?: number; malformed?: boolean; brokenLearning?: boolean; unsafe?: boolean }) {
+async function configureMock(config: { status?: number; delay?: number; malformed?: boolean; brokenLearning?: boolean; unsafe?: boolean; quickEnvelope?: boolean }) {
   await options.evaluate(async config => {
     if (!(await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] })).length) await chrome.offscreen.createDocument({ url: 'offscreen.html', reasons: [chrome.offscreen.Reason.BLOBS], justification: 'Prepare isolated image processor for tests.' });
     await chrome.runtime.sendMessage({ target: 'mock-api', type: 'CONFIG', config });
@@ -109,7 +110,7 @@ test.afterAll(async () => {
   await new Promise<void>(done => server?.close(() => done()));
 });
 test.beforeEach(async () => {
-  await background({ type: 'CLEAR_ALL' }); await configureMock({ status: 200, delay: 0, malformed: false, brokenLearning: false, unsafe: false });
+  await background({ type: 'CLEAR_ALL' }); await configureMock({ status: 200, delay: 0, malformed: false, brokenLearning: false, unsafe: false, quickEnvelope: false });
   const settings: any = await background({ type: 'GET_SETTINGS' }); settings.mode = 'learn'; await background({ type: 'SAVE_SETTINGS', settings });
   await comic.bringToFront(); await comic.reload();
 });
@@ -237,6 +238,20 @@ test('one cropped request teaches chunks and structures; phrase highlighting and
   expect(await comic.evaluate(() => document.documentElement.outerHTML.includes('FAKE_TEST_KEY'))).toBe(false);
   await comic.screenshot({ path: 'test-results/v2-learning.png' });
   await comic.emulateMedia({ colorScheme: 'dark' }); expect(await shadow('function(){return getComputedStyle(this.querySelector(".card")).color}')).toBe('rgb(238, 241, 249)'); await comic.screenshot({ path: 'test-results/v2-learning-dark.png' }); await comic.emulateMedia({ colorScheme: 'light' });
+});
+
+test('quick Gemini sends lower thinking and no learning schema, and accepts wrapped complete JSON in one call', async () => {
+  const original: any = await background({ type: 'GET_SETTINGS' });
+  try {
+    await background({ type: 'SAVE_SETTINGS', settings: { ...original, methodId: 'gemini-image', mode: 'quick', methods: { ...original.methods, 'gemini-image': { ...original.methods['gemini-image'], model: 'gemini-3.8-flash' } } } });
+    await configureMock({ quickEnvelope: true }); await translate();
+    const sent = await calls(); expect(sent).toHaveLength(1);
+    expect(sent[0].body.generation_config).toEqual({ thinking_level: 'low' });
+    expect(sent[0].body.response_format.schema.properties.segments.items.properties.learning).toBeUndefined();
+    expect(sent[0].body.generation_config.max_output_tokens).toBeUndefined();
+    const saved = (await records())[0]; expect(saved.mode).toBe('quick'); expect(saved.result.segments[0].learning).toBeUndefined();
+    await expect.poll(cardText).toContain('Dịch nhanh'); expect(await cardText()).not.toContain('Tách cụm');
+  } finally { await background({ type: 'SAVE_SETTINGS', settings: original }); }
 });
 
 test('three regions survive scrolling and reload; a nearby selection offers saved/new explicitly', async () => {
