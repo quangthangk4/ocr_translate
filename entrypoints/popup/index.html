@@ -1,0 +1,9 @@
+<!doctype html><html lang="vi"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Comic Lens</title></head><body class="popup">
+<header class="brand"><span class="mark" aria-hidden="true">◈</span><div><h1>Comic Lens</h1><p>Đọc truyện, hiểu từng lời thoại.</p></div></header>
+<div class="field"><label for="method">Phương pháp dịch</label><select id="method"></select><small id="model"></small></div>
+<div class="field"><label for="mode">Chế độ dịch</label><select id="mode"><option value="learn">Dịch và hiểu</option><option value="quick">Dịch nhanh</option></select></div>
+<div class="actions"><button id="region" class="primary">Khoanh vùng để dịch<small>Kéo chọn một khung hoặc vài bong bóng thoại</small></button><button id="viewport">Dịch khung nhìn<small>Dịch phần trang bạn đang thấy</small></button></div>
+<button id="restore" style="width:100%;margin-top:10px">Hiện bản dịch đã lưu</button>
+<p id="status" class="status" role="status" aria-live="polite"></p>
+<footer><span class="muted"><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Y</kbd></span><button id="options">Cài đặt</button></footer>
+<script type="module" src="./main.ts"></script></body></html>

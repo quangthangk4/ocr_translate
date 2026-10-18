@@ -1,0 +1,12 @@
+node_modules/
+public/ocr/
+.output/
+.wxt/
+test-results/
+playwright-report/
+.browser-test/
+.native-tools/
+native/windows-ocr/dist/
+native/windows-ocr/build/
+.env*
+!.env.example
