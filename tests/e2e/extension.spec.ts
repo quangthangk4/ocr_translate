@@ -4,7 +4,7 @@ import { resolve, join } from 'node:path';
 import { createServer, type Server } from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { RecordStats, TranslationRecord } from '../../src/types';
+import type { RecordIndexItem, RecordStats, TranslationRecord } from '../../src/types';
 
 let context: BrowserContext, options: Page, comic: Page, server: Server, extensionId: string, extension: string, profile: string, comicUrl: string, cdp: CDPSession;
 let nativeDirectory = '';
@@ -44,6 +44,7 @@ function installMock() {
     return new Response(snapshot.status !== 200 ? '{"error":{"message":"Mock provider error"}}' : JSON.stringify({ status: 'completed', steps: [{ type: 'model_output', content: [{ type: 'text', text: typeof body.input === 'string' ? 'OK' : snapshot.malformed ? '{broken' : payload }] }] }), { status: snapshot.status, headers: { 'Content-Type': 'application/json' } });
   };
 }
+
 async function background<T = unknown>(message: object): Promise<T> {
   const reply = await options.evaluate(async message => await chrome.runtime.sendMessage({ target: 'background', ...message }), message);
   expect(reply.ok, JSON.stringify(reply.error)).toBe(true); return reply.data;
@@ -179,6 +180,7 @@ test('OCR settings and popup hide translation-only controls and can check the pa
   await options.getByRole('button', { name: 'Lưu cài đặt', exact: true }).click();
   const popup = await context.newPage(); await popup.goto(`chrome-extension://${extensionId}/popup.html`);
   await expect(popup.locator('#method')).toHaveValue('local-ocr'); await expect(popup.locator('#mode')).toBeHidden();
+  await expect(popup.locator('#model-field')).toBeHidden();
   await expect(popup.getByRole('button', { name: /Khoanh vùng lấy chữ/ })).toBeEnabled(); await popup.close();
   await options.locator('#method').selectOption('gemini-image'); await expect(options.locator('#mode')).toBeVisible();
   await expect(options.locator('#config-apiKey')).toHaveValue('FAKE_TEST_KEY_NOT_A_REAL_CREDENTIAL');
@@ -220,10 +222,36 @@ test('real Windows OCR extracts offline, preserves selection and retry method, a
 
 test('shipping permissions stay minimal and the popup restores without an API call', async () => {
   const manifest = JSON.parse(await readFile(resolve('.output/chrome-mv3/manifest.json'), 'utf8'));
-  expect(manifest.permissions.sort()).toEqual(['activeTab','nativeMessaging','offscreen','scripting','storage']); expect(manifest.host_permissions).toEqual(['https://generativelanguage.googleapis.com/*']); expect(manifest.content_scripts ?? []).toEqual([]); expect(manifest.options_ui.open_in_tab).toBe(true);
+  expect(manifest.chrome_url_overrides ?? {}).toEqual({});
+  expect(manifest.permissions.sort()).toEqual(['activeTab','nativeMessaging','offscreen','scripting','storage','unlimitedStorage']); expect(manifest.host_permissions).toEqual(['https://generativelanguage.googleapis.com/*']); expect(manifest.content_scripts ?? []).toEqual([]); expect(manifest.options_ui.open_in_tab).toBe(true);
   const popup = await context.newPage(); await popup.goto(`chrome-extension://${extensionId}/popup.html`);
   await expect(popup.locator('#mode')).toHaveValue('learn'); await expect(popup.getByRole('button', { name: /Khoanh vùng để dịch/ })).toBeEnabled(); await expect(popup.getByRole('button', { name: 'Hiện bản dịch đã lưu' })).toBeVisible();
+  await expect(popup.getByRole('link', { name: 'Tìm trong lịch sử', exact: true })).toHaveAttribute('href', '/library.html');
   await popup.screenshot({ path: 'test-results/v2-popup.png' }); await popup.close(); expect(await calls()).toHaveLength(0);
+});
+
+test('popup saves Gemini model immediately, preserves other settings, hides it for OCR and uses it on capture', async () => {
+  const original: any = await background({ type: 'GET_SETTINGS' });
+  const popup = await context.newPage();
+  try {
+    await background({ type: 'SAVE_SETTINGS', settings: { ...original, methodId: 'gemini-image', sourceLang: 'English' } });
+    await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+    await expect(popup.locator('#gemini-model')).toHaveValue(original.methods['gemini-image'].model);
+    await popup.locator('#gemini-model').selectOption('gemini-3.6-flash');
+    await expect(popup.locator('#status')).toContainText('Đã chọn gemini-3.6-flash');
+    const saved = await background<any>({ type: 'GET_SETTINGS' });
+    expect(saved.methods['gemini-image']).toEqual({ ...original.methods['gemini-image'], model: 'gemini-3.6-flash' });
+    expect(saved.targetLang).toBe(original.targetLang); expect(saved.mode).toBe(original.mode); expect(await calls()).toHaveLength(0);
+    await popup.locator('#method').selectOption('windows-ocr'); await expect(popup.locator('#model-field')).toBeHidden();
+    await popup.locator('#method').selectOption('gemini-image'); await expect(popup.locator('#gemini-model')).toHaveValue('gemini-3.6-flash');
+    await popup.reload(); await expect(popup.locator('#gemini-model')).toHaveValue('gemini-3.6-flash');
+    await popup.screenshot({ path: 'test-results/popup-model.png' });
+    await popup.emulateMedia({ colorScheme: 'dark' }); await popup.screenshot({ path: 'test-results/popup-model-dark.png' });
+    await comic.bringToFront();
+    await popup.evaluate(() => document.querySelector<HTMLButtonElement>('#region')!.click());
+    await expect.poll(text).toContain('Kéo chọn vùng truyện'); await drag(); await expect.poll(cardText).toContain('Long Vương');
+    expect((await calls())[0].body.model).toBe('gemini-3.6-flash');
+  } finally { if (!popup.isClosed()) await popup.close(); await background({ type: 'SAVE_SETTINGS', settings: original }); }
 });
 
 test('one cropped request teaches chunks and structures; phrase highlighting and expansion are local', async () => {
@@ -238,6 +266,63 @@ test('one cropped request teaches chunks and structures; phrase highlighting and
   expect(await comic.evaluate(() => document.documentElement.outerHTML.includes('FAKE_TEST_KEY'))).toBe(false);
   await comic.screenshot({ path: 'test-results/v2-learning.png' });
   await comic.emulateMedia({ colorScheme: 'dark' }); expect(await shadow('function(){return getComputedStyle(this.querySelector(".card")).color}')).toBe('rgb(238, 241, 249)'); await comic.screenshot({ path: 'test-results/v2-learning-dark.png' }); await comic.emulateMedia({ colorScheme: 'light' });
+});
+
+test('history searches all saved text, highlights safely, paginates, opens learning locally and follows deletions', async () => {
+  await translate(); const base = (await records())[0];
+  await options.evaluate(async base => {
+    const values: Record<string, unknown> = {}, index = (await chrome.storage.local.get<{ recordIndexV2: RecordIndexItem[] }>('recordIndexV2')).recordIndexV2;
+    for (let i = 0; i < 23; i++) {
+      const source = i === 0 ? "You've GOT A\n  SHOT at winning." : i === 1 ? '<img src=x onerror="alert(1)"> got a shot.' : `We have got a shot number ${i}.`;
+      const item: TranslationRecord = { ...base, id: `search-${i}`, pageUrl: i === 1 ? 'javascript:alert(1)' : `https://comic.test/chapter-${i}`, updatedAt: 10_000 - i, createdAt: 10_000 - i,
+        methodId: i === 2 ? 'local-ocr' : 'gemini-image', mode: i === 0 ? 'learn' : 'quick', result: { segments: [{ source, translation: i === 2 ? '' : 'Bạn có cơ hội thắng.', ...(i === 0 ? { learning: { chunks: [{ text: 'got a shot', meaning: 'có cơ hội' }], structures: [{ excerpt: 'got a shot', pattern: 'have got a shot at + V-ing', explanation: 'Có cơ hội làm việc gì đó.', example: 'This is a window of opportunity.', exampleTranslation: 'Đây là một cơ hội.' }], notes: ['Không phải nghĩa bắn súng ở đây.'] } } : {}) }], warnings: [] } };
+      values[`translationV2:${item.id}`] = item; index.push({ id: item.id, pageUrl: item.pageUrl, createdAt: item.createdAt, bytes: JSON.stringify(item).length });
+    }
+    await chrome.storage.local.set({ ...values, recordIndexV2: index });
+  }, base);
+  const history = await context.newPage();
+  try {
+    await history.goto(`chrome-extension://${extensionId}/library.html?q=got%20a%20shot`);
+    await expect(history.locator('#status')).toContainText('23 câu phù hợp'); await expect(history.locator('.history-result')).toHaveCount(20);
+    await expect(history.locator('.source mark').first()).toHaveText(/GOT A\s+SHOT/);
+    expect(await history.locator('#results img,#results script').count()).toBe(0);
+    expect(await history.locator('a[href^="javascript:"]').count()).toBe(0);
+    await history.locator('.saved-learning > summary').click(); await expect(history.getByText('Có cơ hội làm việc gì đó.', { exact: true })).toBeHidden();
+    await history.getByText('Cấu trúc và ví dụ', { exact: true }).click(); await expect(history.getByText('Có cơ hội làm việc gì đó.', { exact: true })).toBeVisible();
+    await expect(history.locator('[data-record-id="search-0"] a').first()).toHaveAttribute('href', 'https://comic.test/chapter-0');
+    await history.screenshot({ path: 'test-results/history-learning.png', fullPage: false });
+    await history.emulateMedia({ colorScheme: 'dark' }); await history.screenshot({ path: 'test-results/history-dark.png' });
+    await history.locator('#next').click(); await expect(history.locator('.history-result')).toHaveCount(3); await expect(history.locator('#page-number')).toHaveText('Trang 2 / 2');
+    await history.locator('#query').fill('window of opportunity'); await history.getByRole('button', { name: 'Tìm kiếm', exact: true }).click();
+    await expect(history.locator('#status')).toContainText('1 câu phù hợp'); await expect(history.locator('.match-context mark')).toHaveText('window of opportunity');
+    await history.locator('#query').fill('you’ve'); await history.getByRole('button', { name: 'Tìm kiếm', exact: true }).click(); await expect(history.locator('#status')).toContainText('1 câu phù hợp');
+    await history.locator('#query').fill('NONEXISTENT'); await history.getByRole('button', { name: 'Tìm kiếm', exact: true }).click(); await expect(history.locator('#status')).toContainText('Không tìm thấy');
+    await history.locator('#query').fill('GOT   A SHOT'); await history.getByRole('button', { name: 'Tìm kiếm', exact: true }).click(); await expect(history.locator('#status')).toContainText('23 câu phù hợp');
+    await options.evaluate(async () => {
+      const key = 'translationV2:search-22', values = await chrome.storage.local.get<Record<string, TranslationRecord>>(key);
+      values[key].result.segments[0] = { source: 'A different expression.', translation: '' };
+      await chrome.storage.local.set(values); // Update the record without changing the index.
+    });
+    await expect(history.locator('#status')).toContainText('22 câu phù hợp');
+    await background({ type: 'CLEAR_ALL' }); await expect(history.locator('#status')).toContainText('Chưa có lịch sử'); await expect(history.locator('.history-result')).toHaveCount(0);
+    expect(await calls()).toHaveLength(1);
+  } finally { await history.close(); }
+});
+
+test('unlimited history preserves over 500 cards and over the default storage quota when saving new translations', async () => {
+  await options.evaluate(async () => {
+    const values: Record<string, unknown> = {}, index = [];
+    for (let i = 0; i < 502; i++) {
+      const item: TranslationRecord = { version: 2, id: `long-term-${i}`, pageUrl: 'https://archive.test/old', anchor: { kind: 'page', documentToken: 'p', rect: { x: 1, y: 1, width: 40, height: 40 } }, methodId: 'local-ocr', model: '', sourceLang: 'English', targetLang: 'Vietnamese', mode: 'quick', promptVersion: 'v1', createdAt: i, updatedAt: i,
+        result: { kind: 'ocr', segments: [{ source: i === 501 ? 'x'.repeat(11 * 1024 * 1024) : `Old sentence ${i}`, translation: '' }], warnings: [] } };
+      values[`translationV2:${item.id}`] = item; index.push({ id: item.id, pageUrl: item.pageUrl, createdAt: i, bytes: JSON.stringify(item).length });
+    }
+    await chrome.storage.local.set({ ...values, recordIndexV2: index });
+  });
+  await translate(); expect((await stats()).count).toBe(503); expect((await stats()).bytes).toBeGreaterThan(10 * 1024 * 1024);
+  expect(await options.evaluate(async () => (await chrome.storage.local.get<Record<string, TranslationRecord>>('translationV2:long-term-0'))['translationV2:long-term-0'].result.segments[0].source)).toBe('Old sentence 0');
+  await options.reload(); await expect(options.locator('#storage-stats')).toContainText('503 thẻ'); await expect(options.locator('#storage-stats')).toContainText('Không tự dọn');
+  await expect(options.locator('#config-apiKey')).toHaveValue('FAKE_TEST_KEY_NOT_A_REAL_CREDENTIAL');
 });
 
 test('quick Gemini sends lower thinking and no learning schema, and accepts wrapped complete JSON in one call', async () => {
@@ -261,7 +346,7 @@ test('three regions survive scrolling and reload; a nearby selection offers save
   await start(); await drag(94, 103); await expect.poll(text).toContain('Xem bản đã lưu'); await click('Xem bản đã lưu'); expect(await calls()).toHaveLength(3);
   await comic.reload(); await expect(comic.locator('#comic-lens-root')).toHaveCount(0);
   await background({ type: 'RESTORE' }); await expect.poll(cardText).toContain('Long Vương'); expect(await calls()).toHaveLength(3); expect((await stats()).count).toBe(3);
-  await expect(options.locator('#storage-stats')).toContainText('3 / 500');
+  await expect(options.locator('#storage-stats')).toContainText('3 thẻ');
 });
 
 test('anchors track layout shifts, resizing, zoom and image loading without matching another source URL', async () => {
@@ -271,7 +356,7 @@ test('anchors track layout shifts, resizing, zoom and image loading without matc
     const saved = (await records())[0];
     const expected = await comic.locator('#comic').evaluate((el, rect) => el.getBoundingClientRect().top + scrollY + el.getBoundingClientRect().height * rect.y, saved.anchor.rect);
     const actual = await shadow<number>('function(){return parseFloat(this.querySelector(".card").style.top)}');
-    return Math.abs((actual ?? -9999) - expected);
+    return Math.abs((actual ?? -9999) - Math.max(8, expected - 180));
   };
   await expect.poll(checkAnchor).toBeLessThan(2);
   const tabId = await options.evaluate(async url => (await chrome.tabs.query({})).find(t => t.url === url)!.id!, comicUrl);
@@ -368,7 +453,7 @@ test('settings persist mode, languages and model; connection diagnostics and cle
   await options.locator('#mode').selectOption('quick'); await options.locator('#source').selectOption('Auto-detect'); await options.locator('#target').selectOption('Japanese'); await options.locator('#config-model').selectOption('gemini-3.5-flash-lite');
   await options.getByRole('button', { name: 'Lưu cài đặt', exact: true }).click(); await options.reload(); await expect(options.locator('#mode')).toHaveValue('quick'); await expect(options.locator('#target')).toHaveValue('Japanese');
   await options.screenshot({ path: 'test-results/v2-settings-dark.png', fullPage: true });
-  options.once('dialog', dialog => dialog.accept()); await options.getByRole('button', { name: 'Xóa toàn bộ dữ liệu đã lưu', exact: true }).click(); await expect(options.locator('#storage-stats')).toContainText('0 / 500'); await expect(options.locator('#config-apiKey')).not.toHaveValue('');
+  options.once('dialog', dialog => dialog.accept()); await options.getByRole('button', { name: 'Xóa toàn bộ dữ liệu đã lưu', exact: true }).click(); await expect(options.locator('#storage-stats')).toContainText('0 thẻ'); await expect(options.locator('#config-apiKey')).not.toHaveValue('');
 });
 
 test('translations survive a full Brave restart without image bytes or API calls on restore', async () => {

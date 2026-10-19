@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lịch sử · Comic Lens</title></head>
+<body><main class="history">
+<header class="history-header"><div class="brand"><span class="mark" aria-hidden="true">◈</span><div><h1>Lịch sử Comic Lens</h1><p>Tìm lại câu đã đọc, hiểu lại cách dịch.</p></div></div><a href="/options.html" target="_blank" rel="noreferrer">Cài đặt &amp; dữ liệu</a></header>
+<section class="card search-card" aria-label="Tìm trong lịch sử">
+<form id="search-form"><label for="query">Từ hoặc cụm bạn muốn tìm lại</label><div class="search-row"><input id="query" type="search" maxlength="200" placeholder="Ví dụ: got a shot" autocomplete="off" aria-describedby="search-help"><button class="primary" type="submit">Tìm kiếm</button></div></form>
+<p id="search-help" class="muted">Tìm trong câu gốc, bản dịch, tách cụm, cấu trúc và ví dụ. Không gọi AI, không tốn quota.</p>
+<p id="storage-info" class="muted"></p>
+</section>
+<p id="status" class="status" role="status" aria-live="polite"></p>
+<div id="results" aria-busy="false"></div>
+<nav id="pagination" class="pagination" aria-label="Trang kết quả" hidden><button id="previous">Trang trước</button><span id="page-number"></span><button id="next">Trang sau</button></nav>
+</main><script type="module" src="./main.ts"></script></body></html>

@@ -109,9 +109,15 @@ export default defineBackground(() => {
       return;
     }
     if (fromOffscreen) throw new AppError('UNSUPPORTED');
-    if (['GET_SETTINGS', 'SAVE_SETTINGS', 'START', 'TEST', 'STATS', 'CLEAR_ALL'].includes(message.type) && !internal) throw new AppError('UNSUPPORTED');
+    if (['GET_SETTINGS', 'SAVE_SETTINGS', 'SET_MODEL', 'START', 'TEST', 'STATS', 'CLEAR_ALL'].includes(message.type) && !internal) throw new AppError('UNSUPPORTED');
     if (message.type === 'GET_SETTINGS') return settings();
     if (message.type === 'SAVE_SETTINGS') { const config = normalizeSettings(message.settings); await chrome.storage.local.set({ settings: config }); return config; }
+    if (message.type === 'SET_MODEL') {
+      const config = await settings(), field = methodCatalog.find(m => m.id === message.methodId)?.fields.find(f => f.key === 'model');
+      if (!field || typeof message.model !== 'string' || !message.model || !field.suggestions?.includes(message.model) && config.methods[message.methodId]?.model !== message.model) throw new AppError('CONFIG');
+      config.methods[message.methodId].model = message.model;
+      await chrome.storage.local.set({ settings: config }); return;
+    }
     if (message.type === 'OPEN_OPTIONS') { await chrome.runtime.openOptionsPage(); return; }
     if (message.type === 'STATS') return store.stats();
     if (message.type === 'RESTORE') {

@@ -118,7 +118,7 @@ async function updateTest() {
 chrome.storage.onChanged.addListener((changes, area) => { if (area === 'session' && changes.testStatus) void updateTest(); if (area === 'local' && changes.recordIndexV2) void updateStats().catch(report); });
 async function updateStats() {
   const stats = await send<RecordStats>({ target: 'background', type: 'STATS' });
-  document.querySelector('#storage-stats')!.textContent = `${stats.count} / ${stats.maxCount} thẻ · ${(stats.bytes / 1024 / 1024).toFixed(2)} / 5 MB`;
+  document.querySelector('#storage-stats')!.textContent = `${stats.count} thẻ · Khoảng ${(stats.bytes / 1024 / 1024).toFixed(2)} MB · Không tự dọn lịch sử`;
   const pages = document.querySelector<HTMLSelectElement>('#saved-page')!;
   const current = pages.value; pages.replaceChildren();
   for (const page of stats.pages) pages.append(new Option(`${page.count} thẻ · ${page.url}`, page.url));

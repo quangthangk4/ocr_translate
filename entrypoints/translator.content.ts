@@ -174,7 +174,7 @@ export default defineContentScript({
         const width = Math.max(200, Math.min(state.wide ? 480 : 350, innerWidth - 20));
         const gutter = !!anchor && scrollX + innerWidth - anchor.imageRight >= width + 26;
         let x = gutter ? anchor!.imageRight + 16 : scrollX + innerWidth - width - 16;
-        let y = anchor ? anchor.rect.y : scrollY + 70;
+        let y = anchor ? Math.max(8, anchor.rect.y - 180) : scrollY + 70;
         if (state.offset) { x += state.offset.x; y += state.offset.y; }
         x = Math.max(scrollX + 8, Math.min(x, scrollX + innerWidth - width - 8));
         y = floating ? Math.max(8, y) : Math.max(8, y, bottom + 12);

@@ -35,7 +35,7 @@ export interface TranslationRecord {
   promptVersion: string; result: TranslationResult; createdAt: number; updatedAt: number;
 }
 export interface RecordIndexItem { id: string; pageUrl: string; createdAt: number; bytes: number }
-export interface RecordStats { count: number; bytes: number; maxCount: number; maxBytes: number; pages: { url: string; count: number }[] }
+export interface RecordStats { count: number; bytes: number; pages: { url: string; count: number }[] }
 export type ErrorCode = 'AUTH' | 'MODEL' | 'QUOTA' | 'NETWORK' | 'TIMEOUT' | 'BLOCKED' | 'INVALID_RESPONSE' | 'NO_TEXT' | 'CANCELLED' | 'UNSUPPORTED' | 'BUSY' | 'INVALID_CAPTURE' | 'CONFIG' | 'API_REQUEST' | 'STORAGE' | 'OCR' | 'WINDOWS_SETUP' | 'WINDOWS_LANGUAGE' | 'UNKNOWN';
 export interface Failure { code: ErrorCode; message: string }
 export type Reply<T = undefined> = { ok: true; data: T } | { ok: false; error: Failure };

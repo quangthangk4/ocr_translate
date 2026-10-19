@@ -11,6 +11,7 @@ export type BackgroundMessage =
   | { target: 'background'; type: 'WINDOWS_CANCEL'; jobId: string }
   | { target: 'background'; type: 'GET_SETTINGS' | 'OPEN_OPTIONS' | 'STATS' | 'RESTORE' | 'CLEAR_ALL' }
   | { target: 'background'; type: 'SAVE_SETTINGS'; settings: Settings }
+  | { target: 'background'; type: 'SET_MODEL'; methodId: string; model: string }
   | { target: 'background'; type: 'START'; mode: 'region' | 'viewport'; methodId: string; translationMode?: TranslationMode }
   | { target: 'background'; type: 'CAPTURE'; jobId: string; rect: Rect; viewport: Viewport; anchor: Anchor }
   | { target: 'background'; type: 'CANCEL'; jobId: string }

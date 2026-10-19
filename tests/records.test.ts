@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { budgetRecords, MAX_RECORD_BYTES, MAX_RECORDS, RecordStore, validAnchor } from '../src/records';
+import { RecordStore, validAnchor } from '../src/records';
 import { excerptRange } from '../src/learning';
 import { parseTranslation } from '../src/methods/gemini';
 import { defaultSettings, normalizeSettings } from '../src/methods/catalog';
@@ -49,13 +49,23 @@ describe('persistent translation records', () => {
     const store = new RecordStore(); await store.initialize(); await store.put(record('1'), 0); await store.put(record('2'), 0);
     await store.remove('1'); expect(await store.get('1')).toBeUndefined(); expect((await store.stats()).count).toBe(1);
   });
-  it('enforces count and byte budgets by evicting oldest records', () => {
-    const index = [1, 2, 3].map(i => ({ id: String(i), pageUrl: 'p', createdAt: i, bytes: 100 }));
-    const entry = { id: '4', pageUrl: 'p', createdAt: 4, bytes: 150 };
-    expect(budgetRecords(index, entry, 3, 300).evicted).toEqual(['1', '2']);
-    expect(budgetRecords(index, entry, 3, 1000).index).toHaveLength(3);
-    expect(() => budgetRecords(index, { ...entry, bytes: 1001 }, 3, 1000)).toThrow();
-    expect(MAX_RECORDS).toBe(500); expect(MAX_RECORD_BYTES).toBe(5 * 1024 * 1024);
+  it('preserves more than 500 records and over 5 MB without evicting older history', async () => {
+    const store = new RecordStore(); await store.initialize();
+    for (let i = 0; i < 501; i++) await store.put(record(String(i)), 0);
+    const large = record('large'); large.result.segments[0].source = 'x'.repeat(5 * 1024 * 1024 + 1);
+    await store.put(large, 0);
+    expect((await store.stats()).count).toBe(502); expect((await store.stats()).bytes).toBeGreaterThan(5 * 1024 * 1024);
+    expect(await store.get('0')).toBeDefined(); expect(await store.get('500')).toBeDefined();
+    const found = []; for await (const item of store.entries()) found.push(item.id);
+    expect(found).toHaveLength(502);
+    expect(vi.mocked(chrome.storage.local.get).mock.calls.filter(args => Array.isArray(args[0])).every(args => (args[0] as string[]).length <= 100)).toBe(true);
+  });
+  it('never deletes existing records or settings if a new write fails', async () => {
+    const store = new RecordStore(); await store.initialize(); await store.put(record('1'), 0);
+    vi.mocked(chrome.storage.local.set).mockRejectedValueOnce(Error('disk full'));
+    await expect(store.put(record('2'), 0)).rejects.toThrow('disk full');
+    expect(await store.get('1')).toBeDefined(); expect((await store.stats()).count).toBe(1);
+    expect(local.settings).toMatchObject({ apiKey: 'keep-this-secret' });
   });
   it('validates normalized anchors and keeps URL query parameters significant', () => {
     expect(validAnchor(record('1').anchor)).toBe(true);
